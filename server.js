@@ -21,7 +21,12 @@ import { runEngine } from './src/data/db-engine.js';
 const __dirname  = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH    = path.join(__dirname, 'db', 'capacity.db');
 const DATA_DIR   = path.join(__dirname, 'server-data');
-const REQUIREMENTS_SOURCE_PATH = path.join(__dirname, '..', 'capacity-dashboard', 'server-data', 'shared-report.json');
+const REQUIREMENTS_SOURCE_CANDIDATES = [
+  process.env.REQUIREMENTS_SOURCE_PATH,
+  path.join(DATA_DIR, 'shared-report.json'),
+  path.join(__dirname, '..', 'capacity-dashboard', 'server-data', 'shared-report.json'),
+  path.join(__dirname, '..', 'server-data', 'shared-report.json'),
+].filter(Boolean);
 
 const PORT = process.env.PORT || 3381;
 const COVERAGE_MODES = new Set(['official', 'review', 'combined']);
@@ -31,16 +36,19 @@ function normalizeCoverageMode(raw) {
 }
 
 function loadRequirementsCoverage() {
-  if (!existsSync(REQUIREMENTS_SOURCE_PATH)) {
+  const sourcePath = REQUIREMENTS_SOURCE_CANDIDATES.find(candidate => existsSync(candidate));
+  if (!sourcePath) {
     return {
       available: false,
       sourceFile: null,
+      sourcePath: null,
+      triedPaths: REQUIREMENTS_SOURCE_CANDIDATES,
       itemCount: 0,
       itemSet: new Set(),
     };
   }
 
-  const report = JSON.parse(readFileSync(REQUIREMENTS_SOURCE_PATH, 'utf8'));
+  const report = JSON.parse(readFileSync(sourcePath, 'utf8'));
   const itemSet = new Set();
   for (const row of report.data?.itemStandards || []) {
     if (row.itemNumber) itemSet.add(String(row.itemNumber).trim());
@@ -48,10 +56,17 @@ function loadRequirementsCoverage() {
 
   return {
     available: true,
-    sourceFile: report.fileName || path.basename(REQUIREMENTS_SOURCE_PATH),
+    sourceFile: report.fileName || path.basename(sourcePath),
+    sourcePath,
     itemCount: itemSet.size,
     itemSet,
   };
+}
+
+function assertRequirementsCoverage(requirementsCoverage) {
+  if (requirementsCoverage.available) return;
+  const tried = requirementsCoverage.triedPaths.map(p => `- ${p}`).join('\n');
+  throw new Error(`Requirements baseline not found. Official/Review/Combined scopes cannot be calculated without shared-report.json. Tried:\n${tried}`);
 }
 
 // ─── DB connection (opened once, reused for all requests) ─────────────────────
@@ -276,6 +291,7 @@ app.get('/api/db-demand-breakdown', (req, res) => {
     const schedule = req.query.schedule === '7 Day' ? '7 Day' : '5 Day';
     const coverageMode = normalizeCoverageMode(req.query.coverage);
     const requirementsCoverage = loadRequirementsCoverage();
+    assertRequirementsCoverage(requirementsCoverage);
 
     // Load Oracle forecast from DB
     const upload = db.prepare('SELECT * FROM oracle_uploads WHERE is_active = 1 ORDER BY id DESC LIMIT 1').get();
@@ -349,6 +365,7 @@ app.get('/api/db-report', (req, res) => {
     const schedule = req.query.schedule === '7 Day' ? '7 Day' : '5 Day';
     const coverageMode = normalizeCoverageMode(req.query.coverage);
     const requirementsCoverage = loadRequirementsCoverage();
+    assertRequirementsCoverage(requirementsCoverage);
     const monthParam = req.query.month || null;
 
     // Determine the target month
@@ -449,6 +466,7 @@ app.get('/api/db-report', (req, res) => {
         mode: coverageMode,
         requirementsAvailable: requirementsCoverage.available,
         requirementsSourceFile: requirementsCoverage.sourceFile,
+        requirementsSourcePath: requirementsCoverage.sourcePath,
         requirementsItemCount: requirementsCoverage.itemCount,
       },
       hasOracleForecast: !!upload,

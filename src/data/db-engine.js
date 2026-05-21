@@ -473,6 +473,7 @@ export function calculateDemand(oracleForecast, inputs, schedule = '5 Day', opti
       mode: coverageMode,
       requirementsAvailable: !!requirementsCoverage?.available,
       requirementsSourceFile: requirementsCoverage?.sourceFile || null,
+      requirementsSourcePath: requirementsCoverage?.sourcePath || null,
       requirementsItemCount: requirementsCoverage?.itemCount || 0,
       excludedAdditionalItems: {
         firmPO: coverageSkipped.firmPO.size,
