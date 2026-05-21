@@ -23,7 +23,7 @@ const DB_PATH    = path.join(__dirname, 'db', 'capacity.db');
 const DATA_DIR   = path.join(__dirname, 'server-data');
 const REQUIREMENTS_SOURCE_PATH = path.join(__dirname, '..', 'capacity-dashboard', 'server-data', 'shared-report.json');
 
-const PORT = 3381;
+const PORT = process.env.PORT || 3381;
 const COVERAGE_MODES = new Set(['official', 'review', 'combined']);
 
 function normalizeCoverageMode(raw) {
