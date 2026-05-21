@@ -6,6 +6,7 @@ server-data/
 db/capacity.db
 db/capacity.db-shm
 db/capacity.db-wal
+db/backups/
 
 # Logs
 *.log

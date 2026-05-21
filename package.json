@@ -8,7 +8,8 @@
     "build": "vite build",
     "start": "node server.js",
     "db:init": "node db/init-db.js",
-    "db:migrate": "node db/migrate-from-excel.js"
+    "db:migrate": "node db/migrate-from-excel.js",
+    "db:refresh": "node db/migrate-from-excel.js --refresh"
   },
   "dependencies": {
     "cors": "^2.8.5",

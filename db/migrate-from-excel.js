@@ -1,12 +1,13 @@
 /**
  * db/migrate-from-excel.js
  *
- * One-time migration: reads every relevant tab from the .xlsb capacity workbook
- * and populates the SQLite database.
+ * Migration/refresh script: reads every relevant tab from the .xlsb capacity
+ * workbook and populates the SQLite database.
  *
  * Usage:
  *   node db/migrate-from-excel.js
  *   node db/migrate-from-excel.js --xlsb "C:\path\to\file.xlsb"
+ *   node db/migrate-from-excel.js --refresh --xlsb "C:\path\to\file.xlsb"
  *
  * The script will auto-locate the .xlsb file in the parent Capacity Report Model
  * folder if no --xlsb argument is given.
@@ -15,7 +16,7 @@
 import * as XLSXModule from 'xlsx';
 const XLSX = XLSXModule.default || XLSXModule;
 import { Database } from './sqlite-compat.js';
-import { readdirSync, existsSync } from 'fs';
+import { readdirSync, existsSync, mkdirSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
 
@@ -23,24 +24,37 @@ import path from 'path';
 
 const __dirname  = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH    = path.join(__dirname, 'capacity.db');
+const BACKUP_DIR = path.join(__dirname, 'backups');
+const REFRESH    = process.argv.includes('--refresh');
+const NO_BACKUP  = process.argv.includes('--no-backup');
 
 // Auto-detect .xlsb file in the Capacity Report Model folder
 function findXlsb() {
   const arg = process.argv.find(a => a.startsWith('--xlsb='));
   if (arg) return arg.split('=')[1];
+  const argIndex = process.argv.indexOf('--xlsb');
+  if (argIndex !== -1 && process.argv[argIndex + 1]) {
+    return process.argv[argIndex + 1];
+  }
 
-  const searchDir = path.join(__dirname, '..', '..', 'Capacity Report Model');
-  if (existsSync(searchDir)) {
-    const files = readdirSync(searchDir).filter(f => f.endsWith('.xlsb'));
+  const searchDirs = [
+    path.resolve(__dirname, '..', '..'),
+    path.resolve(__dirname, '..', '..', 'Capacity Report Model'),
+  ];
+  for (const searchDir of searchDirs) {
+    if (!existsSync(searchDir)) continue;
+    const files = readdirSync(searchDir)
+      .filter(f => f.toLowerCase().endsWith('.xlsb'))
+      .sort();
     if (files.length > 0) return path.join(searchDir, files[0]);
   }
   throw new Error(
-    'Could not find .xlsb file. Pass --xlsb=<path> or place the file in ' +
+    'Could not find .xlsb file. Pass --xlsb <path> or place the file in ' +
     '"../Capacity Report Model/" relative to the Claude Capacity Model folder.'
   );
 }
 
-const XLSB_PATH = findXlsb();
+const XLSB_PATH = path.resolve(findXlsb());
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -93,8 +107,56 @@ if (!existsSync(DB_PATH)) {
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
+db.pragma('busy_timeout = 10000');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function sqlString(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+function timestampForFile() {
+  return new Date().toISOString().replace(/[:.]/g, '-');
+}
+
+function backupDatabase() {
+  mkdirSync(BACKUP_DIR, { recursive: true });
+  const backupPath = path.join(BACKUP_DIR, `capacity-${timestampForFile()}.db`);
+  db.exec(`VACUUM INTO ${sqlString(backupPath)}`);
+  console.log(`  Backup written: ${backupPath}`);
+}
+
+function resetExcelDerivedTables() {
+  console.log('  Clearing Excel-derived tables before refresh');
+  db.exec('PRAGMA foreign_keys = OFF');
+  const run = db.transaction(() => {
+    db.exec(`
+      DELETE FROM forecast_change_group_members;
+      DELETE FROM forecast_change_groups;
+      DELETE FROM forecast_changes;
+      DELETE FROM employees;
+      DELETE FROM oven_info;
+      DELETE FROM sequence_daily_caps;
+      DELETE FROM days_in_month;
+      DELETE FROM capacity;
+      DELETE FROM yields;
+      DELETE FROM item_standards;
+      DELETE FROM items;
+      DELETE FROM sqlite_sequence
+       WHERE name IN (
+         'item_standards',
+         'capacity',
+         'forecast_changes',
+         'forecast_change_groups',
+         'forecast_change_group_members',
+         'employees',
+         'oven_info'
+       );
+    `);
+  });
+  run();
+  db.exec('PRAGMA foreign_keys = ON');
+}
 
 function parseNum(v) {
   if (v === null || v === undefined || v === '') return null;
@@ -801,6 +863,12 @@ function migrateOvenInfo() {
 console.log('═'.repeat(60));
 console.log('  Capacity Model — Excel → SQLite Migration');
 console.log('═'.repeat(60));
+
+if (REFRESH) {
+  console.log('  Refresh mode: replacing Excel-derived tables only');
+  if (!NO_BACKUP) backupDatabase();
+  resetExcelDerivedTables();
+}
 
 migrateItems();
 migrateMachineStandards();
