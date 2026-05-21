@@ -1,0 +1,19 @@
+node_modules/
+dist/
+server-data/
+
+# SQLite database (populated on server via migration scripts)
+db/capacity.db
+db/capacity.db-shm
+db/capacity.db-wal
+
+# Logs
+*.log
+
+# Local Excel source files
+*.xlsb
+*.xlsm
+
+# OS
+.DS_Store
+Thumbs.db
