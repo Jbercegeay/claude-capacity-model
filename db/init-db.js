@@ -7,7 +7,7 @@
  *   node db/init-db.js --reset   -- drop and recreate (CAUTION: destroys all data)
  */
 
-import Database from 'better-sqlite3';
+import { Database } from './sqlite-compat.js';
 import { readFileSync, existsSync, unlinkSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';

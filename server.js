@@ -12,7 +12,7 @@ import cors from 'cors';
 import multer from 'multer';
 import * as XLSXModule from 'xlsx';
 const XLSX = XLSXModule.default || XLSXModule;
-import Database from 'better-sqlite3';
+import { Database } from './db/sqlite-compat.js';
 import { existsSync, writeFileSync, readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';

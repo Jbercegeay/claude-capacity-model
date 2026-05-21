@@ -639,7 +639,7 @@ export function applyOvertime(monthlyData, otPercents) {
 /**
  * High-level entry point: load from DB, apply changes, run calculation.
  *
- * @param {Database} db            - better-sqlite3 instance
+ * @param {Database} db            - node:sqlite DatabaseSync instance
  * @param {Object}   oracleForecast - { firmPO, forecast }
  * @param {string}   schedule      - '5 Day' | '7 Day'
  */
