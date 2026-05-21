@@ -7,7 +7,7 @@ module.exports = {
       interpreter: 'node',
       env: {
         NODE_ENV: 'production',
-        PORT: 3381,
+        PORT: 3380,
       },
       restart_delay: 5000,
       max_restarts: 10,
