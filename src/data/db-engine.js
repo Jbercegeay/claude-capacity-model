@@ -45,10 +45,21 @@ const VS_ALIASES = {
   // NPI items span multiple VS — left unmapped so they still appear in plantTotal/bySequence
 };
 
+// Support capacity can work across sequences, so it should not become a sequence row.
+const SUPPORT_CAPACITY_PROCESSES = new Set(['floater']);
+
+export function isSupportCapacityProcess(processName) {
+  return SUPPORT_CAPACITY_PROCESSES.has(String(processName || '').trim().toLowerCase());
+}
+
 function normalizeVS(raw) {
   if (!raw || !raw.trim()) return null;
   const lower = raw.toLowerCase().trim();
   return VS_ALIASES[lower] || raw.trim();
+}
+
+function isPlantTotalValueStream(valueStream) {
+  return !valueStream || String(valueStream).trim().toLowerCase() === 'total';
 }
 
 /**
@@ -84,6 +95,7 @@ export function loadInputsFromDB(db) {
   for (const row of db.prepare(
     'SELECT item_number, sequence, seconds_per_unit, standard_type FROM item_standards'
   ).all()) {
+    if (isSupportCapacityProcess(row.sequence)) continue;
     if (!standards[row.item_number]) standards[row.item_number] = {};
     standards[row.item_number][row.sequence] = {
       value: row.seconds_per_unit,
@@ -106,7 +118,9 @@ export function loadInputsFromDB(db) {
   }
 
   // capacityRows — process × value_stream × capacity × uom
-  const capacityRows = db.prepare('SELECT * FROM capacity').all();
+  const capacityRows = db.prepare('SELECT * FROM capacity')
+    .all()
+    .filter(row => !isSupportCapacityProcess(row.process));
 
   // sequenceDailyCaps[sequence] = daily_cap_hours
   const sequenceDailyCaps = {};
@@ -243,22 +257,26 @@ export function calculateDemand(oracleForecast, inputs, schedule = '5 Day', opti
   const includeMachineSequences = options.includeMachineSequences === true;
   const workingDaysByMonth = workingDaysByScheduleAndMonth[schedule] || {};
 
-  // Build capacity lookups from DB rows
-  const capacityBySeqVS = {};  // seq → vs → capacity (HC)
-  const capacityBySeq   = {};  // seq → total capacity
+  // Build capacity lookups from DB rows.
+  // Plant Total uses workbook Total rows; VS drilldowns use only VS-specific rows.
+  const capacityBySeqVS = {};  // seq -> vs -> capacity (HC)
+  const capacityBySeq   = {};  // seq -> plant-total capacity
   const seqToUom        = {};
 
   for (const row of capacityRows) {
     const seq = row.process;
     const vs  = normalizeVS(row.value_stream);
-    if (!vs) continue;
+    if (!seq) continue;
 
     seqToUom[seq] = row.uom;
+    if (!includeMachineSequences && row.uom === 'Heads') continue;
 
-    if (!capacityBySeqVS[seq]) capacityBySeqVS[seq] = {};
-    capacityBySeqVS[seq][vs] = (capacityBySeqVS[seq][vs] || 0) + row.capacity;
-
-    capacityBySeq[seq] = (capacityBySeq[seq] || 0) + row.capacity;
+    if (isPlantTotalValueStream(vs)) {
+      capacityBySeq[seq] = (capacityBySeq[seq] || 0) + row.capacity;
+    } else {
+      if (!capacityBySeqVS[seq]) capacityBySeqVS[seq] = {};
+      capacityBySeqVS[seq][vs] = (capacityBySeqVS[seq][vs] || 0) + row.capacity;
+    }
   }
 
   // Case-insensitive daily-cap lookup
@@ -406,7 +424,10 @@ export function calculateDemand(oracleForecast, inputs, schedule = '5 Day', opti
 
       for (const [seq, stdInfo] of Object.entries(itemStds)) {
         // Skip machine sequences (UOM = Heads) — demand breakdown compares human constraints only
-        if (!includeMachineSequences && seqToUom[seq] === 'Heads') continue;
+        if (!includeMachineSequences) {
+          const isPeopleSequence = seqToUom[seq] === 'People' || (!seqToUom[seq] && stdInfo.type === 'finishing');
+          if (!isPeopleSequence) continue;
+        }
 
         const hoursPerUnit = computeHoursPerUnit(itemNum, seq, stdInfo);
         if (!hoursPerUnit || hoursPerUnit <= 0) continue;
@@ -543,7 +564,7 @@ export function calculateDemand(oracleForecast, inputs, schedule = '5 Day', opti
   const capacityByVS  = {};
   const hrsAvailByVS  = {};
   for (const [seq, vsData] of Object.entries(capacityBySeqVS)) {
-    if (seqToUom[seq] === 'Heads') continue;
+    if (!includeMachineSequences && seqToUom[seq] === 'Heads') continue;
     const seqDailyCap = resolveCap(seq);
     for (const [vs, hc] of Object.entries(vsData)) {
       if (!capacityByVS[vs]) capacityByVS[vs] = {};

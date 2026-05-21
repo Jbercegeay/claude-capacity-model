@@ -16,7 +16,7 @@ import { Database } from './db/sqlite-compat.js';
 import { existsSync, writeFileSync, readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
-import { runEngine } from './src/data/db-engine.js';
+import { isSupportCapacityProcess, runEngine } from './src/data/db-engine.js';
 
 const __dirname  = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH    = path.join(__dirname, 'db', 'capacity.db');
@@ -407,7 +407,9 @@ app.get('/api/db-report', (req, res) => {
     const allSeq = new Set();
 
     // Populate from capacity table (ensures all seqs/VS appear even without demand)
-    const capRows = db.prepare('SELECT process, value_stream, capacity, uom, department, subcategory FROM capacity').all();
+    const capRows = db.prepare('SELECT process, value_stream, capacity, uom, department, subcategory FROM capacity')
+      .all()
+      .filter(row => !isSupportCapacityProcess(row.process));
     for (const row of capRows) {
       const seq = row.process;
       const vs  = row.value_stream;
@@ -467,6 +469,7 @@ app.get('/api/db-report', (req, res) => {
     `).all();
     for (const row of standardTypeRows) {
       if (!row.sequence) continue;
+      if (isSupportCapacityProcess(row.sequence)) continue;
       if (!sequenceStandardTypes[row.sequence]) sequenceStandardTypes[row.sequence] = new Set();
       if (row.standard_type) sequenceStandardTypes[row.sequence].add(row.standard_type);
     }
