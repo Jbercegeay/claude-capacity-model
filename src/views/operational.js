@@ -69,7 +69,7 @@ export async function renderOperational(container, schedule, coverageMode = 'off
 
     let result;
     try {
-      result = await fetchDemandBreakdown(schedule, coverageMode);
+      result = await fetchDemandBreakdown(schedule, coverageMode, { includeMachines: true });
     } catch (err) {
       container.innerHTML = `
         <div class="view-header animate-in"><h1 class="view-title">Operational Detail</h1></div>

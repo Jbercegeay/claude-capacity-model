@@ -290,6 +290,7 @@ app.get('/api/db-demand-breakdown', (req, res) => {
   try {
     const schedule = req.query.schedule === '7 Day' ? '7 Day' : '5 Day';
     const coverageMode = normalizeCoverageMode(req.query.coverage);
+    const includeMachineSequences = req.query.includeMachines === 'true';
     const requirementsCoverage = loadRequirementsCoverage();
     assertRequirementsCoverage(requirementsCoverage);
 
@@ -315,7 +316,7 @@ app.get('/api/db-demand-breakdown', (req, res) => {
     }
 
     const oracleForecast = { firmPO, forecast };
-    const breakdown = runEngine(db, oracleForecast, schedule, { coverageMode, requirementsCoverage });
+    const breakdown = runEngine(db, oracleForecast, schedule, { coverageMode, requirementsCoverage, includeMachineSequences });
     res.json({ ok: true, schedule, coverage: breakdown.coverage, oracleFile: upload.file_name, breakdown });
   } catch (err) {
     console.error('Engine error:', err);
@@ -397,7 +398,7 @@ app.get('/api/db-report', (req, res) => {
           forecast[row.item_number][row.month] = (forecast[row.item_number][row.month] || 0) + row.qty;
         }
       }
-      breakdown = runEngine(db, { firmPO, forecast }, schedule, { coverageMode, requirementsCoverage });
+      breakdown = runEngine(db, { firmPO, forecast }, schedule, { coverageMode, requirementsCoverage, includeMachineSequences: true });
     }
 
     // Build matrix: [seq][vs] = { demand_hc, capacity, delta, util_pct }
@@ -456,6 +457,34 @@ app.get('/api/db-report', (req, res) => {
         if (row.department) sequenceDepts[row.process] = row.department;
         if (row.subcategory) sequenceSubs[row.process] = row.subcategory;
       }
+    }
+
+    const sequenceStandardTypes = {};
+    const standardTypeRows = db.prepare(`
+      SELECT sequence, standard_type
+      FROM item_standards
+      GROUP BY sequence, standard_type
+    `).all();
+    for (const row of standardTypeRows) {
+      if (!row.sequence) continue;
+      if (!sequenceStandardTypes[row.sequence]) sequenceStandardTypes[row.sequence] = new Set();
+      if (row.standard_type) sequenceStandardTypes[row.sequence].add(row.standard_type);
+    }
+
+    function inferSequenceMeta(seq) {
+      const types = sequenceStandardTypes[seq] || new Set();
+      const isMachine = types.has('machine') || types.has('draw');
+      const isFinishing = types.has('finishing');
+      if (isMachine) return { department: 'Machines', subcategory: 'Other', uom: 'Heads' };
+      if (isFinishing) return { department: 'Finishing', subcategory: 'Other', uom: 'People' };
+      return { department: 'Other', subcategory: null, uom: null };
+    }
+
+    for (const seq of allSeq) {
+      const inferred = inferSequenceMeta(seq);
+      if (!sequenceDepts[seq]) sequenceDepts[seq] = inferred.department;
+      if (!sequenceSubs[seq] && inferred.subcategory) sequenceSubs[seq] = inferred.subcategory;
+      if (!sequenceUoms[seq] && inferred.uom) sequenceUoms[seq] = inferred.uom;
     }
 
     res.json({

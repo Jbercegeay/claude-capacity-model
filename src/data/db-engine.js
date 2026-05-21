@@ -240,6 +240,7 @@ export function calculateDemand(oracleForecast, inputs, schedule = '5 Day', opti
 
   const coverageMode = normalizeCoverageMode(options.coverageMode);
   const requirementsCoverage = options.requirementsCoverage || null;
+  const includeMachineSequences = options.includeMachineSequences === true;
   const workingDaysByMonth = workingDaysByScheduleAndMonth[schedule] || {};
 
   // Build capacity lookups from DB rows
@@ -405,7 +406,7 @@ export function calculateDemand(oracleForecast, inputs, schedule = '5 Day', opti
 
       for (const [seq, stdInfo] of Object.entries(itemStds)) {
         // Skip machine sequences (UOM = Heads) — demand breakdown compares human constraints only
-        if (seqToUom[seq] === 'Heads') continue;
+        if (!includeMachineSequences && seqToUom[seq] === 'Heads') continue;
 
         const hoursPerUnit = computeHoursPerUnit(itemNum, seq, stdInfo);
         if (!hoursPerUnit || hoursPerUnit <= 0) continue;

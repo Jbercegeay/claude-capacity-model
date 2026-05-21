@@ -41,8 +41,9 @@ export function fetchDbReport(schedule = '5 Day', month = null, coverage = 'offi
   return apiFetch(`/api/db-report?${p}`);
 }
 
-export function fetchDemandBreakdown(schedule = '5 Day', coverage = 'official') {
+export function fetchDemandBreakdown(schedule = '5 Day', coverage = 'official', opts = {}) {
   const p = new URLSearchParams({ schedule, coverage });
+  if (opts.includeMachines) p.set('includeMachines', 'true');
   return apiFetch(`/api/db-demand-breakdown?${p}`);
 }
 
