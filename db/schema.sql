@@ -52,6 +52,19 @@ CREATE INDEX IF NOT EXISTS idx_item_standards_item ON item_standards(item_number
 CREATE INDEX IF NOT EXISTS idx_item_standards_seq  ON item_standards(sequence);
 
 -- ---------------------------------------------------------------------------
+-- REQUIREMENTS BASELINE ITEMS
+-- Source: Requirements tab
+-- Defines the official demand baseline and workbook reporting value stream.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS requirement_items (
+  item_number  TEXT PRIMARY KEY,
+  value_stream TEXT NOT NULL,
+  description  TEXT,
+  uom          TEXT,
+  fg_length    REAL
+);
+
+-- ---------------------------------------------------------------------------
 -- MANUFACTURING YIELDS
 -- Source: MFG Yields tab
 -- One yield factor per item (applies to all sequences for that item)

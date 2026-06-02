@@ -36,6 +36,26 @@ function normalizeCoverageMode(raw) {
 }
 
 function loadRequirementsCoverage() {
+  try {
+    const hasTable = db.prepare(`
+      SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'requirement_items'
+    `).get();
+    if (hasTable) {
+      const rows = db.prepare('SELECT item_number FROM requirement_items').all();
+      if (rows.length) {
+        return {
+          available: true,
+          sourceFile: 'SQLite requirement_items',
+          sourcePath: DB_PATH,
+          itemCount: rows.length,
+          itemSet: new Set(rows.map(row => String(row.item_number).trim())),
+        };
+      }
+    }
+  } catch {
+    // Fall through to the legacy shared-report.json baseline.
+  }
+
   const sourcePath = REQUIREMENTS_SOURCE_CANDIDATES.find(candidate => existsSync(candidate));
   if (!sourcePath) {
     return {

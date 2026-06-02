@@ -108,6 +108,15 @@ const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 db.pragma('busy_timeout = 10000');
+db.exec(`
+  CREATE TABLE IF NOT EXISTS requirement_items (
+    item_number  TEXT PRIMARY KEY,
+    value_stream TEXT NOT NULL,
+    description  TEXT,
+    uom          TEXT,
+    fg_length    REAL
+  );
+`);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -141,6 +150,7 @@ function resetExcelDerivedTables() {
       DELETE FROM capacity;
       DELETE FROM yields;
       DELETE FROM item_standards;
+      DELETE FROM requirement_items;
       DELETE FROM items;
       DELETE FROM sqlite_sequence
        WHERE name IN (
@@ -169,6 +179,16 @@ function cleanStr(v) {
   if (v === null || v === undefined) return null;
   const s = String(v).trim();
   return s === '' ? null : s;
+}
+
+function normalizeValueStream(value) {
+  const s = cleanStr(value);
+  if (!s) return null;
+  const lower = s.toLowerCase();
+  if (lower === 'polyimide') return 'PI';
+  if (lower === 'precision') return 'PL';
+  if (lower === 'extrusion') return 'Ex';
+  return s;
 }
 
 function sheetToArr(sheetName) {
@@ -246,6 +266,64 @@ function migrateItems() {
   });
   run();
   countInserted('items', count);
+}
+
+// ─── 1b. Requirements value streams ───────────────────────────────────────────
+
+function migrateRequirementsValueStreams() {
+  console.log('📋  Migrating: Requirements → items.value_stream');
+  const rows = sheetToArr('Requirements');
+  if (!rows || rows.length < 3) { console.log('  ⚠️  Sheet not found or empty'); return; }
+
+  const C = {
+    value_stream: 0,
+    item_number: 1,
+    description: 2,
+    uom: 6,
+    fg_length: 24,
+  };
+
+  const itemStmt = db.prepare(`
+    INSERT INTO items (item_number, description, value_stream, uom, fg_length)
+    VALUES (@item_number, @description, @value_stream, @uom, @fg_length)
+    ON CONFLICT(item_number) DO UPDATE SET
+      value_stream = excluded.value_stream,
+      description = COALESCE(items.description, excluded.description),
+      uom = COALESCE(items.uom, excluded.uom),
+      fg_length = COALESCE(items.fg_length, excluded.fg_length)
+  `);
+  const requirementStmt = db.prepare(`
+    INSERT INTO requirement_items (item_number, value_stream, description, uom, fg_length)
+    VALUES (@item_number, @value_stream, @description, @uom, @fg_length)
+    ON CONFLICT(item_number) DO UPDATE SET
+      value_stream = excluded.value_stream,
+      description = excluded.description,
+      uom = excluded.uom,
+      fg_length = excluded.fg_length
+  `);
+
+  let count = 0;
+  let lastVS = null;
+  const run = db.transaction(() => {
+    for (let i = 2; i < rows.length; i++) {
+      const r = rows[i];
+      if (r[C.value_stream]) lastVS = normalizeValueStream(r[C.value_stream]);
+      const itemNum = cleanStr(r[C.item_number]);
+      if (!itemNum || !lastVS) continue;
+      const row = {
+        item_number: itemNum,
+        description: cleanStr(r[C.description]),
+        value_stream: lastVS,
+        uom: cleanStr(r[C.uom]),
+        fg_length: parseNum(r[C.fg_length]),
+      };
+      itemStmt.run(row);
+      requirementStmt.run(row);
+      count++;
+    }
+  });
+  run();
+  countInserted('requirement item value streams', count);
 }
 
 // ─── 2. Machine Standards ─────────────────────────────────────────────────────
@@ -871,6 +949,7 @@ if (REFRESH) {
 }
 
 migrateItems();
+migrateRequirementsValueStreams();
 migrateMachineStandards();
 migrateDrawStandards();
 migrateFinishingStandards();
